@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "opticslabkit"
+version = "0.1.0"
+description = "Local optical lab data import, processing, comparison, and reproducible figure export."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Boyang Duan" }]
+dependencies = ["numpy>=1.24", "pandas>=2", "matplotlib>=3.7", "openpyxl>=3.1"]
+
+[project.urls]
+Homepage = "https://github.com/SoftBread1217/OpticsLabKit"
+Repository = "https://github.com/SoftBread1217/OpticsLabKit"
+Issues = "https://github.com/SoftBread1217/OpticsLabKit/issues"
+Changelog = "https://github.com/SoftBread1217/OpticsLabKit/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.12"]
+
+[project.scripts]
+opticslabkit = "opticslabkit.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["opticslabkit*"]
+
+[tool.setuptools.package-data]
+opticslabkit = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

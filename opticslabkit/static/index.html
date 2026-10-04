@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpticsLabKit · 光学数据工作台</title><link rel="stylesheet" href="/style.css">
+<script src="/app.js" defer></script></head>
+<body>
+<header><div class="brand"><span class="mark">O<span>／</span>K</span><div>OpticsLabKit<small>光学数据工作台</small></div></div><div class="local"><span></span>本地运行 · v0.1.0</div></header>
+<main><section class="intro"><div><p class="eyebrow">FROM MEASUREMENT TO FIGURE</p><h1>让实验数据，变成清晰的曲线。</h1><p>导入、比较、处理和导出，在一个工作台里完成。</p></div><button id="demo" class="secondary">先体验 TE / TM 示例</button></section>
+<div id="status" role="status" aria-live="polite">导入你的数据，或者先载入合成示例。</div>
+<div class="layout"><aside>
+<section class="panel"><div class="section-title"><span class="step">01</span><h2>导入与选列</h2></div>
+<label class="drop" id="drop"><input id="files" type="file" multiple accept=".csv,.txt,.tsv,.dat,.xlsx"><strong>选择文件或拖放到这里</strong><span>TXT · CSV · TSV · DAT · Excel .xlsx</span><small>每个文件 ≤ 20 MB · 文件仅在本机处理</small></label>
+<details class="parse"><summary>读取设置（仪器导出文件）</summary><div class="grid2">
+<label>跳过前几行<input id="skip" type="number" min="0" max="200000" value="0"></label>
+<label>表头<select id="header"><option value="auto">自动识别</option><option value="yes">第一行为表头</option><option value="no">没有表头</option></select></label>
+<label>分隔符<select id="delimiter"><option value="auto">自动识别</option><option value="comma">逗号 ,</option><option value="tab">制表符 Tab</option><option value="space">空格</option><option value="semicolon">分号 ;</option></select></label>
+<label>小数符号<select id="decimal"><option value=".">小数点 .</option><option value=",">小数逗号 ,</option></select></label></div><p class="hint">调整后重新选择文件。以 #、% 或 // 开头的文本行会作为注释跳过。</p></details>
+<div id="datasets"><p class="empty-note">尚未导入文件。支持一份文件里的多条曲线，也支持不同文件叠加比较。</p></div>
+<a class="template" href="/api/template">下载 TE / TM 合成示例 CSV</a></section>
+<section class="panel"><div class="section-title"><span class="step">02</span><h2>处理与标注</h2></div>
+<label>归一化<select id="normalization"><option value="none">保留原始幅值</option><option value="minmax">Min-Max → [0, 1]</option><option value="maxabs">除以最大绝对值</option></select></label>
+<label>基线扣除<select id="baseline"><option value="none">不扣除</option><option value="minimum">扣除最小值</option><option value="edge_linear">首尾两点线性基线</option></select></label>
+<label>移动平均窗口（点数）<div class="range-row"><input id="smoothing" type="range" min="1" max="31" step="2" value="1"><output id="smoothValue">1 · 不平滑</output></div></label>
+<p class="hint">处理顺序：排除无效数值 → 基线 → 平滑 → 归一化。始终保留采集顺序。</p>
+<label>图片标题<input id="title" value="Optical response comparison" maxlength="160"></label><div class="grid2"><label>X 轴名称 / 单位<input id="xLabel" value="X" maxlength="100"></label><label>Y 轴名称 / 单位<input id="yLabel" value="Y" maxlength="100"></label></div>
+<label class="check"><input id="raw" type="checkbox" checked> 叠加原始曲线（虚线）</label><p id="scaleNote" class="hint"></p>
+<button id="apply" class="primary" disabled>更新曲线</button></section></aside>
+<div class="workspace"><section class="panel plot-panel"><div class="plot-head"><div><p class="eyebrow">LIVE PREVIEW</p><h2 id="plotTitle">曲线预览</h2></div><span id="pointCount" class="badge">等待数据</span></div><div class="canvas-wrap"><canvas id="chart" aria-label="光学响应曲线预览"></canvas><div id="plotEmpty"><div class="empty-symbol">∿</div><h3>从第一条曲线开始</h3><p>载入示例，看看归一化和平滑如何改变结果。</p><button id="demoEmpty" class="secondary">载入 TE / TM 示例</button></div></div><div id="legend"></div><p id="hover" class="hover">移动鼠标查看最接近横坐标的采样点。</p></section>
+<section class="panel"><div class="section-title"><span class="step">03</span><h2>检查与导出</h2></div><div id="summary" class="table-wrap"><p class="empty-note">处理后显示每条曲线的数据点数、幅值范围和采样最大值位置。</p></div><div id="warnings"></div><div class="export-row"><div><strong>一份完整的结果包</strong><p>300 dpi PNG · SVG · 处理后 CSV · 参数与来源记录</p></div><button id="export" class="primary" disabled>下载结果 ZIP</button></div></section>
+<details class="panel"><summary>数据预览与使用说明</summary><div id="preview" class="table-wrap"></div><p class="hint">坐标单位由你填写，不自动猜测。每条曲线独立归一化后不能直接比较 TE/TM 的绝对强度。采样最大值不是拟合峰位或半高宽；往返扫描可保留滞回轨迹。示例为合成数据，不是论文测量数据。</p></details></div></div>
+<footer>OpticsLabKit <span>数据在本机内存中处理；关闭服务后清空。原始文件保持不变。</span></footer></main>
+</body></html>
