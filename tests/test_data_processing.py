@@ -8,6 +8,7 @@ import pytest
 from opticslabkit.data import demo_data, read_data
 from opticslabkit.export import export_bundle
 from opticslabkit.processing import process_curve
+from opticslabkit.session import load_session, save_session
 
 
 def small_workbook() -> bytes:
@@ -89,6 +90,23 @@ def test_excel_sheet_selection_and_source_hash():
     assert len(data.source["sha256"]) == 64
     with pytest.raises(ValueError, match="工作表"):
         read_data("scan.xlsx", raw, sheet="missing")
+
+
+def test_excel_session_preserves_workbook_and_sheet_selection():
+    raw = small_workbook()
+    data = read_data("scan.xlsx", raw, sheet="TM")
+    payload = {"datasets": [{"id": "book", "x": "wavelength", "ys": ["response"]}],
+               "curves": [{"id": "book", "x": "wavelength", "y": "response"}]}
+    records, state = load_session(save_session({"book": data}, payload))
+    restored = records[0]["dataset"]
+    assert restored.raw == raw
+    assert restored.source["sheet"] == "TM"
+    assert restored.sheets == ["TE", "TM"]
+    assert restored.parsing["sheet"] == "TM"
+    other = read_data(restored.name, restored.raw, **{**restored.parsing, "sheet": "TE"})
+    assert other.frame["response"].tolist() == [1, 2]
+    assert state["curves"][0]["style"]["color"] == "#176b82"
+    assert state["processing"]["smoothing"] == 1
 
 
 def test_pairwise_cleaning_and_order_preservation():

@@ -89,3 +89,69 @@ def test_cli_export_preserves_existing_file(tmp_path):
                              str(target)], capture_output=True)
     assert result.returncode == 2
     assert target.read_bytes() == b"keep me"
+
+
+def test_preview_is_exact_export_svg_and_restore_session_on_fresh_server(local_server):
+    with post(local_server + "/api/demo", {}) as response:
+        data = json.load(response)
+    payload = {"datasets": [{"id": data["id"], "x": "Wavelength (nm)", "ys": ["TE (a.u.)"]}],
+               "curves": [{"id": data["id"], "x": "Wavelength (nm)", "y": "TE (a.u.)",
+                           "label": "TE", "group": "A", "polarization": "TE",
+                           "style": {"color": "#123456", "line": "--", "marker": "o"}}],
+               "processing": {"smoothing": 3},
+               "figure": {"width_mm": 85, "height_mm": 65, "show_raw": False},
+               "analysis": {"repeats": False, "units_confirmed": True}}
+    with post(local_server + "/api/analyze", payload) as response:
+        result = json.load(response)
+    with urllib.request.urlopen(local_server + result["preview_url"]) as response:
+        svg = response.read()
+        assert response.headers["Content-Type"] == "image/svg+xml"
+    with post(local_server + "/api/export", payload) as response:
+        with zipfile.ZipFile(io.BytesIO(response.read())) as archive:
+            assert archive.read("figure.svg") == svg
+    with post(local_server + "/api/session/save", payload) as response:
+        url = json.load(response)["download_url"]
+    with urllib.request.urlopen(local_server + url) as response:
+        saved = json.load(response)
+        assert "comparison.olksession.json" in response.headers["Content-Disposition"]
+    # The old dataset IDs have no meaning in this new server; restoring remaps them.
+    fresh = LabServer(0)
+    thread = threading.Thread(target=fresh.serve_forever, daemon=True)
+    thread.start()
+    endpoint = f"http://127.0.0.1:{fresh.server_port}"
+    try:
+        with post(endpoint + "/api/session/load", saved) as response:
+            restored = json.load(response)
+        assert restored["datasets"][0]["id"] != data["id"]
+        assert restored["datasets"][0]["source"]["data_kind"] == "synthetic demonstration"
+        with post(endpoint + "/api/analyze", restored["state"]) as response:
+            restored_result = json.load(response)
+        assert restored_result["curves"][0]["y"] == result["curves"][0]["y"]
+        with urllib.request.urlopen(endpoint + restored_result["preview_url"]) as response:
+            assert response.read() == svg
+        saved["datasets"][0]["sha256"] = "corrupt"
+        before = set(fresh.datasets)
+        with pytest.raises(urllib.error.HTTPError):
+            post(endpoint + "/api/session/load", saved)
+        assert set(fresh.datasets) == before
+    finally:
+        fresh.shutdown()
+        fresh.server_close()
+        thread.join(timeout=2)
+
+
+def test_browser_repeat_demo_has_stats_and_exported_sd(local_server):
+    with post(local_server + "/api/demo-repeats", {}) as response:
+        datasets = json.load(response)["datasets"]
+    payload = {"curves": [{"id": data["id"], "x": "Wavelength (nm)", "y": "TE (a.u.)",
+                           "group": "demo", "polarization": "TE", "label": f"run {i}"}
+                          for i, data in enumerate(datasets)],
+               "analysis": {"repeats": True, "units_confirmed": True},
+               "figure": {"show_raw": False}}
+    with post(local_server + "/api/analyze", payload) as response:
+        summary = json.load(response)["analysis"]
+    assert summary["statistics"][0]["n"] == 3
+    assert summary["statistics"][0]["interpolated"] is True
+    with post(local_server + "/api/export", payload) as response:
+        with zipfile.ZipFile(io.BytesIO(response.read())) as archive:
+            assert "repeat_01.csv" in archive.namelist()

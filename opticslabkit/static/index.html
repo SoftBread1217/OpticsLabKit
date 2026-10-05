@@ -4,9 +4,10 @@
 <title>OpticsLabKit · 光学数据工作台</title><link rel="stylesheet" href="/style.css">
 <script src="/app.js" defer></script></head>
 <body>
-<header><div class="brand"><span class="mark">O<span>／</span>K</span><div>OpticsLabKit<small>光学数据工作台</small></div></div><div class="local"><span></span>本地运行 · v0.1.0</div></header>
-<main><section class="intro"><div><p class="eyebrow">FROM MEASUREMENT TO FIGURE</p><h1>让实验数据，变成清晰的曲线。</h1><p>导入、比较、处理和导出，在一个工作台里完成。</p></div><button id="demo" class="secondary">先体验 TE / TM 示例</button></section>
+<header><div class="brand"><span class="mark">O<span>／</span>K</span><div>OpticsLabKit<small>光学数据工作台</small></div></div><div class="local"><span></span>本地运行 · v0.2.0</div></header>
+<main><section class="intro"><div><p class="eyebrow">FROM MEASUREMENT TO FIGURE</p><h1>从光学实验，到可复现的图。</h1><p>整理扫描与重复测量，统一出图，再交给 Origin 精修。</p></div><div class="demo-buttons"><button id="demo" class="secondary">TE / TM 示例</button><button id="repeatDemo" class="secondary">重复测量示例</button><button id="scanDemo" class="secondary">往返扫描示例</button></div></section>
 <div id="status" role="status" aria-live="polite">导入你的数据，或者先载入合成示例。</div>
+<a id="downloadReady" class="template" hidden>下载已生成的文件</a>
 <div class="layout"><aside>
 <section class="panel"><div class="section-title"><span class="step">01</span><h2>导入与选列</h2></div>
 <label class="drop" id="drop"><input id="files" type="file" multiple accept=".csv,.txt,.tsv,.dat,.xlsx"><strong>选择文件或拖放到这里</strong><span>TXT · CSV · TSV · DAT · Excel .xlsx</span><small>每个文件 ≤ 20 MB · 文件仅在本机处理</small></label>
@@ -17,16 +18,28 @@
 <label>小数符号<select id="decimal"><option value=".">小数点 .</option><option value=",">小数逗号 ,</option></select></label></div><p class="hint">调整后重新选择文件。以 #、% 或 // 开头的文本行会作为注释跳过。</p></details>
 <div id="datasets"><p class="empty-note">尚未导入文件。支持一份文件里的多条曲线，也支持不同文件叠加比较。</p></div>
 <a class="template" href="/api/template">下载 TE / TM 合成示例 CSV</a></section>
+<section class="panel"><h2>保存与恢复工作</h2><div class="session-actions"><button id="saveSession" class="secondary" disabled>保存会话</button><label class="secondary file-button">打开会话<input id="loadSession" type="file" accept=".json"></label></div><p class="hint">会话包含原始文件、选列、分组和图样。关闭后可恢复；分享前请检查原始数据。原始文件合计 ≤ 20 MB。</p></section>
 <section class="panel"><div class="section-title"><span class="step">02</span><h2>处理与标注</h2></div>
 <label>归一化<select id="normalization"><option value="none">保留原始幅值</option><option value="minmax">Min-Max → [0, 1]</option><option value="maxabs">除以最大绝对值</option></select></label>
 <label>基线扣除<select id="baseline"><option value="none">不扣除</option><option value="minimum">扣除最小值</option><option value="edge_linear">首尾两点线性基线</option></select></label>
 <label>移动平均窗口（点数）<div class="range-row"><input id="smoothing" type="range" min="1" max="31" step="2" value="1"><output id="smoothValue">1 · 不平滑</output></div></label>
-<p class="hint">处理顺序：排除无效数值 → 基线 → 平滑 → 归一化。始终保留采集顺序。</p>
+<p class="hint">处理顺序：排除无效数值 → 选择扫描分支 → 基线 → 平滑 → 归一化。保持采集顺序。</p>
 <label>图片标题<input id="title" value="Optical response comparison" maxlength="160"></label><div class="grid2"><label>X 轴名称 / 单位<input id="xLabel" value="X" maxlength="100"></label><label>Y 轴名称 / 单位<input id="yLabel" value="Y" maxlength="100"></label></div>
 <label class="check"><input id="raw" type="checkbox" checked> 叠加原始曲线（虚线）</label><p id="scaleNote" class="hint"></p>
+<details id="figureControls"><summary>科研图样：尺寸、字体与坐标</summary>
+<label>尺寸预设<select id="preset"><option value="double">双栏参考 · 180 × 110 mm</option><option value="single">单栏参考 · 85 × 65 mm</option><option value="custom">自定义（以目标期刊为准）</option></select></label>
+<div class="grid2"><label>宽度 / mm<input id="widthMm" type="number" min="40" max="250" value="180"></label><label>高度 / mm<input id="heightMm" type="number" min="40" max="250" value="110"></label></div>
+<label>字体<select id="font"><option>DejaVu Sans</option><option>Arial</option><option>Microsoft YaHei</option><option>DejaVu Serif</option></select></label>
+<div class="grid2"><label>字号 / pt<input id="fontSize" type="number" min="5" max="24" value="9"></label><label>刻度字号 / pt<input id="tickSize" type="number" min="5" max="24" value="8"></label><label>线宽 / pt<input id="lineWidth" type="number" min="0.2" max="5" step="0.1" value="1.5"></label><label>图例字号 / pt<input id="legendSize" type="number" min="5" max="24" value="8"></label></div>
+<label>图例位置<select id="legendPos"><option value="best">自动</option><option value="upper right">右上</option><option value="upper left">左上</option><option value="lower right">右下</option><option value="lower left">左下</option><option value="outside">图外右侧</option><option value="none">隐藏</option></select></label>
+<div class="grid2"><label>X 轴<select id="xScale"><option value="linear">线性</option><option value="log">对数</option></select></label><label>Y 轴<select id="yScale"><option value="linear">线性</option><option value="log">对数</option></select></label><label>X 下限<input id="xMin" type="number" step="any" placeholder="自动"></label><label>X 上限<input id="xMax" type="number" step="any" placeholder="自动"></label><label>Y 下限<input id="yMin" type="number" step="any" placeholder="自动"></label><label>Y 上限<input id="yMax" type="number" step="any" placeholder="自动"></label></div>
+<label>PNG 分辨率<select id="dpi"><option>300</option><option>600</option><option>150</option></select></label>
+<label class="check"><input id="box" type="checkbox" checked> 显示完整边框</label><label class="check"><input id="minorTicks" type="checkbox" checked> 显示次刻度</label><label class="check"><input id="grid" type="checkbox"> 显示网格</label>
+<p class="hint">预览与导出使用同一绘图引擎。SVG 保留文本；PDF 嵌入字体。屏幕会缩放预览，最终尺寸以导出文件为准。字体需本机安装。</p></details>
 <button id="apply" class="primary" disabled>更新曲线</button></section></aside>
-<div class="workspace"><section class="panel plot-panel"><div class="plot-head"><div><p class="eyebrow">LIVE PREVIEW</p><h2 id="plotTitle">曲线预览</h2></div><span id="pointCount" class="badge">等待数据</span></div><div class="canvas-wrap"><canvas id="chart" aria-label="光学响应曲线预览"></canvas><div id="plotEmpty"><div class="empty-symbol">∿</div><h3>从第一条曲线开始</h3><p>载入示例，看看归一化和平滑如何改变结果。</p><button id="demoEmpty" class="secondary">载入 TE / TM 示例</button></div></div><div id="legend"></div><p id="hover" class="hover">移动鼠标查看最接近横坐标的采样点。</p></section>
-<section class="panel"><div class="section-title"><span class="step">03</span><h2>检查与导出</h2></div><div id="summary" class="table-wrap"><p class="empty-note">处理后显示每条曲线的数据点数、幅值范围和采样最大值位置。</p></div><div id="warnings"></div><div class="export-row"><div><strong>一份完整的结果包</strong><p>300 dpi PNG · SVG · 处理后 CSV · 参数与来源记录</p></div><button id="export" class="primary" disabled>下载结果 ZIP</button></div></section>
+<div class="workspace"><section class="panel plot-panel"><div class="plot-head"><div><p class="eyebrow">EXPORT-MATCHED PREVIEW</p><h2 id="plotTitle">曲线预览</h2></div><span id="pointCount" class="badge">等待数据</span></div><div class="canvas-wrap"><img id="chart" alt="光学响应曲线预览（与导出 SVG 相同）" hidden><div id="plotEmpty"><div class="empty-symbol">∿</div><h3>从第一条曲线开始</h3><p>载入合成示例，体验分组、扫描分支和科研图样。</p><button id="demoEmpty" class="secondary">载入 TE / TM 示例</button></div></div><p id="hover" class="hover">同一引擎预览 · 可编辑矢量图 · 不修改原始文件</p></section>
+<section class="panel"><div class="section-title"><span class="step">03</span><h2>光学分组与曲线样式</h2></div><p class="hint">同一实验条件填相同组名。偏振只做标记；分支的 ↑ / ↓ 仅代表 X 增减。转折点会被相邻分支共享，不代表独立测量。</p><div id="curveControls"></div><label class="check"><input id="repeats" type="checkbox"> 显示重复测量均值 ± 样本标准差（同组、同偏振）</label><label class="check"><input id="unitsConfirmed" type="checkbox"> 我确认参与汇总的测量单位、实验条件一致，且是独立重复</label><p class="hint">仅在共同区间内线性插值到首条曲线网格，不外推。标准差 SD 不是均值误差 SEM，也不是置信区间。</p><div id="opticalSummary" class="table-wrap"></div></section>
+<section class="panel"><div class="section-title"><span class="step">04</span><h2>检查与导出</h2></div><div id="summary" class="table-wrap"><p class="empty-note">处理后显示每条曲线的数据点数、幅值范围和采样最大值位置。</p></div><div id="warnings"></div><div class="export-row"><div><strong>交给 Origin，或随时重画</strong><p>PNG · SVG · PDF · Origin X/Y 表 · 重画脚本 · 来源记录</p></div><button id="export" class="primary" disabled>下载结果 ZIP</button></div><p class="hint">Origin 导入 origin_xy.csv 后将每对 X_01/Y_01 设置为 X/Y；各曲线保留自己的网格。运行包内 redraw.py 可重新出图（需要 Python、Matplotlib、pandas）。结果 ZIP 不含原始文件，保存会话则包含。</p></section>
 <details class="panel"><summary>数据预览与使用说明</summary><div id="preview" class="table-wrap"></div><p class="hint">坐标单位由你填写，不自动猜测。每条曲线独立归一化后不能直接比较 TE/TM 的绝对强度。采样最大值不是拟合峰位或半高宽；往返扫描可保留滞回轨迹。示例为合成数据，不是论文测量数据。</p></details></div></div>
 <footer>OpticsLabKit <span>数据在本机内存中处理；关闭服务后清空。原始文件保持不变。</span></footer></main>
 </body></html>

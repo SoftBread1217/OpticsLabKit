@@ -3,16 +3,27 @@
 [![CI](https://github.com/SoftBread1217/OpticsLabKit/actions/workflows/ci.yml/badge.svg)](https://github.com/SoftBread1217/OpticsLabKit/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**A local workbench for optical lab data: import, compare, process, and export.**
+**Prepare optical scans and repeated measurements for reproducible figures and Origin.**
 
 [中文使用说明](docs/quickstart_zh.md) · [Releases](https://github.com/SoftBread1217/OpticsLabKit/releases) · [Report an issue](https://github.com/SoftBread1217/OpticsLabKit/issues)
 
 OpticsLabKit helps turn instrument TXT/CSV files and Excel worksheets into comparison
 figures without writing a new script for every experiment. Choose the X/Y columns,
-compare TE/TM or repeated runs, apply explicit processing, and download a result bundle.
+label TE/TM pairs, separate scan branches, summarize repeated runs, and download a result bundle.
 The browser interface is in Chinese. All processing runs on your computer.
 
-![Local workbench with synthetic TE/TM curves](docs/images/workbench.png)
+This is a focused preparation tool, **not an Origin replacement**. Use it to check and organize
+instrument exports, save a repeatable comparison, and hand independent X/Y columns to Origin
+for advanced fitting or final layout. Figure dimensions are user-controlled; journal compliance
+still needs a check against the target publication's requirements.
+
+v0.2.0 implements the three workflow improvements below. It remains a small, focused
+workbench: please validate processing choices against your experiment before using results.
+
+![v0.1.0 foundation interface with synthetic TE/TM curves](docs/images/workbench.png)
+
+The image above is the v0.1.0 foundation interface. For v0.2.0 and its three
+examples, follow the [ten-minute walkthrough](docs/v0.2.0_tryout_zh.md).
 
 ## Try it
 
@@ -39,7 +50,29 @@ The example is a deterministic synthetic spectrum, not experimental or paper dat
 Drag in your own file when ready. Use the reading settings for metadata lines,
 headerless files, separators, and decimal commas. XLSX workbooks expose a sheet selector.
 
-## What v0.1.0 does
+## What v0.2.0 adds
+
+- **Export-matched preview**: the displayed SVG uses the exact PNG/SVG/PDF renderer.
+  Physical dimensions (mm), fonts and sizes (pt), ticks, ranges, linear/log axes, legends,
+  per-curve colors, line styles, and markers are adjustable. Single/double-column presets
+  are starting points, not a guarantee of compliance with any journal.
+- **Optical workflow**: editable labels, TE/TM annotations and explicit experimental groups;
+  monotonic scan-branch detection and selection **before** baseline/smoothing/normalization.
+  Turning points are shared, acquisition order is retained, and cross-turn smoothing is rejected.
+- **Repeated measurements**: opt-in mean ± sample SD for matching group/polarization,
+  after the user confirms common units, conditions and independent repeats. Strict monotonic,
+  duplicate-free, same-direction runs only. Linear interpolation uses the first run's grid
+  in the common overlap; no extrapolation. SD uses `ddof=1`, not SEM or a confidence interval.
+- **Continue editing**: session save/load (`.olksession.json`) retains original file bytes,
+  parser settings, selected columns, groups, styles and processing. Sessions contain private
+  measurement data; review before sharing. Original files total at most 20 MB per session file.
+- **Origin and Python handoff**: `origin_xy.csv` provides independent X/Y column pairs
+  (assign their roles in Origin); `redraw.py` plus `plot_style.py` redraw PNG/SVG/PDF without
+  installing OpticsLabKit. Edit `manifest.json` to change figure settings. Fonts/software
+  versions can still affect layout. The script does not overwrite an existing redraw.
+- Three built-in synthetic examples: TE/TM, forward/return scan, and repeated measurements.
+
+## Foundation features
 
 - TXT/CSV/TSV/DAT import: UTF-8/BOM, UTF-16 BOM, GB18030; comma, tab, whitespace, semicolon.
 - XLSX import, worksheet selection, editable header and skipped-row settings.
@@ -49,12 +82,14 @@ headerless files, separators, and decimal commas. XLSX workbooks expose a sheet 
 - Optional minimum or endpoint-linear baseline subtraction, moving average,
   Min-Max or maximum-absolute normalization.
 - Raw/processed overlay, range summary, sampled maximum position.
-- Download 300 dpi PNG, editable-text SVG, processed CSVs, and a JSON provenance record.
+- Download PNG (150/300/600 dpi), editable-text SVG, vector PDF, processed CSVs,
+  repeat statistics when requested, and a JSON provenance record.
 - Python API and CLI for repeatable use.
 
 Exports record source filenames, SHA-256 hashes, parsing options, selected columns,
 processing order, software versions, dropped-row counts, and warnings. They do not
-include copies of the original files. CSV `source_data_row` refers to the parsed table.
+include copies of the original files. **Saved sessions do include the original files.**
+CSV `source_data_row` refers to the parsed table, not the original file line.
 
 ## CLI
 
@@ -62,6 +97,8 @@ include copies of the original files. CSV `source_data_row` refers to the parsed
 python -m opticslabkit inspect experiment.csv
 python -m opticslabkit process experiment.csv --x "Wavelength (nm)" --y "TE" --y "TM" --normalization minmax --smoothing 5 --x-label "Wavelength (nm)" --y-label "Normalized response" --output outputs/comparison.zip
 python -m opticslabkit demo --output outputs/demo.zip
+# Optional: branch ID is zero-based; all is the default. Choose dimensions explicitly.
+python -m opticslabkit process scan.csv --x input --y response --branch 0 --width-mm 85 --height-mm 65 --font-size 8 --output outputs/branch.zip
 ```
 
 `process` and `demo` require a new output filename and do not overwrite an existing ZIP.
@@ -91,10 +128,14 @@ Units are user-supplied. Values are never converted between linear power and dB 
 Individual normalization removes absolute intensity ratios between TE/TM curves.
 Moving averages use point counts and edge-value padding, not a fixed wavelength width.
 Endpoint-linear baseline assumes the first and last points describe the background.
-Sample maxima are not fitted peak positions or FWHM. Preserve separate scan branches
-when the physical interpretation requires them.
+Sample maxima are not fitted peak positions or FWHM. Branch direction describes X increasing
+or decreasing, not sweep time or physical state. Plateaus remain intact; no noise threshold is
+assumed when finding turning points. Tiny X reversals therefore create branches too.
+TE/TM pairing checks counts within explicit groups; it does not compute intensity ratios.
+Different conditions must not be combined just because filenames look similar.
+Individually normalized repeat SD describes normalized shapes, not absolute measurement error.
 
-This first version supports `.xlsx`, not `.xls`, and static figures, not instrument control.
+This version supports `.xlsx`, not `.xls`, and static figures, not instrument control.
 Maximums: 20 MB per file, 200,000 rows, 40 imports per session, 12 curves per comparison.
 Uploads stay in server memory until the process stops. No network API, CDN, analytics,
 or remote upload is used. The service binds to `127.0.0.1` only.

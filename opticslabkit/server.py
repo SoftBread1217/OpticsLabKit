@@ -8,9 +8,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 from urllib.parse import urlparse
 
-from .data import Dataset, demo_data, read_data
+from .data import Dataset, demo_data, read_data, workflow_demo
 from .export import export_bundle
-from .processing import process_curve
+from .plotting import render_figure
+from .session import load_session, save_session
+from .workflow import analyze_selection
 
 MAX_REQUEST_BYTES = 30 * 1024 * 1024
 
@@ -19,7 +21,8 @@ class LabServer(ThreadingHTTPServer):
     def __init__(self, port: int):
         super().__init__(("127.0.0.1", port), Handler)
         self.datasets: dict[str, Dataset] = {}
-        self.exports: dict[str, bytes] = {}
+        self.exports: dict[str, tuple] = {}
+        self.previews: dict[str, bytes] = {}
         self.store_lock = threading.Lock()
 
     def remember(self, dataset: Dataset) -> dict:
@@ -29,6 +32,14 @@ class LabServer(ThreadingHTTPServer):
             key = secrets.token_urlsafe(16)
             self.datasets[key] = dataset
         return {"id": key, **dataset.describe()}
+
+    def download(self, body: bytes, filename: str, content_type: str) -> str:
+        key = secrets.token_urlsafe(24)
+        with self.store_lock:
+            if len(self.exports) >= 5:
+                self.exports.pop(next(iter(self.exports)))
+            self.exports[key] = (body, filename, content_type)
+        return f"/api/download/{key}"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -77,6 +88,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send(demo_data(), "text/csv; charset=utf-8", filename="synthetic_TE_TM.csv")
         elif path == "/api/health":
             self._json({"ok": True, "app": "OpticsLabKit"})
+        elif path.startswith("/api/preview/"):
+            with self.server.store_lock:
+                body = self.server.previews.get(path.removeprefix("/api/preview/"))
+            if body is None:
+                self._json({"error": "预览已过期，请更新曲线。"}, 404)
+            else:
+                self._send(body, "image/svg+xml")
         elif path.startswith("/api/download/"):
             key = path.removeprefix("/api/download/")
             with self.server.store_lock:
@@ -84,26 +102,13 @@ class Handler(BaseHTTPRequestHandler):
             if bundle is None:
                 self._json({"error": "下载已过期，请重新导出。"}, 404)
             else:
-                self._send(bundle, "application/zip", filename="opticslabkit-results.zip")
+                body, filename, content_type = bundle
+                self._send(body, content_type, filename=filename)
         else:
             self._json({"error": "页面不存在。"}, 404)
 
     def _curves(self, payload: dict) -> list[dict]:
-        selected = payload.get("curves", [])
-        if not isinstance(selected, list) or not 1 <= len(selected) <= 12:
-            raise ValueError("请选择 1–12 条曲线。")
-        options = payload.get("processing", {})
-        result = []
-        for spec in selected:
-            dataset = self.server.datasets.get(spec.get("id"))
-            if dataset is None:
-                raise ValueError("数据会话已失效，请重新导入。")
-            result.append(process_curve(
-                dataset, spec.get("x", ""), spec.get("y", ""), label=spec.get("label", ""),
-                normalization=options.get("normalization", "none"),
-                baseline=options.get("baseline", "none"), smoothing=options.get("smoothing", 1),
-            ))
-        return result
+        return analyze_selection(self.server.datasets, payload)[0]
 
     def do_POST(self) -> None:  # noqa: N802
         if not self._same_origin():
@@ -129,19 +134,60 @@ class Handler(BaseHTTPRequestHandler):
                 dataset = read_data("synthetic_TE_TM.csv", demo_data())
                 dataset.source["data_kind"] = "synthetic demonstration"
                 self._json(self.server.remember(dataset))
+            elif path in {"/api/demo-repeats", "/api/demo-scan"}:
+                records = []
+                for name, raw in workflow_demo(path.removeprefix("/api/demo-")):
+                    dataset = read_data(name, raw)
+                    dataset.source["data_kind"] = "synthetic demonstration"
+                    records.append(self.server.remember(dataset))
+                self._json({"datasets": records})
+            elif path == "/api/sheet":
+                original = self.server.datasets.get(payload.get("id"))
+                if original is None:
+                    raise ValueError("数据会话已失效，请重新导入。")
+                dataset = read_data(original.name, original.raw,
+                                    **{**original.parsing, "sheet": payload.get("sheet")})
+                self._json(self.server.remember(dataset))
             elif path == "/api/analyze":
-                self._json({"curves": self._curves(payload)})
-            elif path == "/api/export":
-                body = export_bundle(self._curves(payload), payload.get("figure", {}))
-                self._send(body, "application/zip", filename="opticslabkit-results.zip")
-            elif path == "/api/prepare-export":
-                body = export_bundle(self._curves(payload), payload.get("figure", {}))
+                curves, summary = analyze_selection(self.server.datasets, payload)
+                body = render_figure(curves, payload.get("figure", {}), "svg",
+                                     summary["statistics"])
                 key = secrets.token_urlsafe(24)
                 with self.server.store_lock:
-                    if len(self.server.exports) >= 5:
-                        self.server.exports.pop(next(iter(self.server.exports)))
-                    self.server.exports[key] = body
-                self._json({"download_url": f"/api/download/{key}"})
+                    if len(self.server.previews) >= 5:
+                        self.server.previews.pop(next(iter(self.server.previews)))
+                    self.server.previews[key] = body
+                self._json({"curves": curves, "analysis": summary,
+                            "preview_url": f"/api/preview/{key}"})
+            elif path == "/api/export":
+                curves, summary = analyze_selection(self.server.datasets, payload)
+                body = export_bundle(curves, payload.get("figure", {}), summary)
+                self._send(body, "application/zip", filename="opticslabkit-results.zip")
+            elif path == "/api/prepare-export":
+                curves, summary = analyze_selection(self.server.datasets, payload)
+                body = export_bundle(curves, payload.get("figure", {}), summary)
+                self._json({"download_url": self.server.download(
+                    body, "opticslabkit-results.zip", "application/zip")})
+            elif path == "/api/session/save":
+                body = save_session(self.server.datasets, payload)
+                self._json({"download_url": self.server.download(
+                    body, "comparison.olksession.json", "application/json; charset=utf-8")})
+            elif path == "/api/session/load":
+                # Validate everything before changing server state. No scripts are executed.
+                records, state = load_session(json.dumps(payload).encode("utf-8"))
+                restored, remap = [], {}
+                with self.server.store_lock:
+                    if len(self.server.datasets) + len(records) > 40:
+                        raise ValueError("恢复会话会超过 40 个文件，请重启服务后再打开。")
+                    for record in records:
+                        key = secrets.token_urlsafe(16)
+                        remap[record["key"]] = key
+                        self.server.datasets[key] = record["dataset"]
+                        restored.append({"id": key, **record["dataset"].describe(),
+                                         **record["selection"]})
+                for curve in state["curves"]:
+                    curve["id"] = remap[curve["id"]]
+                self._json({"datasets": restored, "state": state})
             else:
                 self._json({"error": "接口不存在。"}, 404)
         except (ValueError, KeyError, TypeError, OverflowError) as error:

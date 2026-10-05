@@ -6,9 +6,30 @@ import pandas as pd
 from .data import Dataset
 
 
+def scan_branches(x: np.ndarray) -> list[dict]:
+    """Maximal monotonic runs; plateaus stay intact and turning points are shared.
+
+    Direction refers only to X, not to time, experimental history, or physics.
+    Indices are zero-based offsets in the finite-pair filtered curve.
+    """
+    signs = np.sign(np.diff(x)).astype(int)
+    nonzero = np.flatnonzero(signs)
+    if not len(nonzero):
+        return [{"id": "0", "direction": "constant", "start": 0, "stop": len(x)}]
+    direction, start, result = int(signs[nonzero[0]]), 0, []
+    for edge in nonzero[1:]:
+        if signs[edge] != direction:
+            result.append({"id": str(len(result)), "direction": "up" if direction > 0
+                           else "down", "start": start, "stop": int(edge) + 1})
+            start, direction = int(edge), int(signs[edge])
+    result.append({"id": str(len(result)), "direction": "up" if direction > 0 else "down",
+                   "start": start, "stop": len(x)})
+    return result
+
+
 def process_curve(dataset: Dataset, x_column: str, y_column: str, *,
                   label: str = "", normalization: str = "none", baseline: str = "none",
-                  smoothing: int = 1) -> dict:
+                  smoothing: int = 1, branch: str = "all") -> dict:
     if x_column not in dataset.frame or y_column not in dataset.frame:
         raise ValueError("请选择有效的 X/Y 数据列。")
     if x_column == y_column:
@@ -26,17 +47,26 @@ def process_curve(dataset: Dataset, x_column: str, y_column: str, *,
     x, raw_y = x_all[valid], y_all[valid]
     if len(x) < 2:
         raise ValueError("所选数据列至少需要两个有效数值点。")
-    if smoothing > len(x):
-        raise ValueError("平滑窗口不能超过有效数据点数。")
     warnings = []
     dropped = int((~valid).sum())
     if dropped:
         warnings.append(f"已排除 {dropped} 行非数值、空值或无穷值；原文件未修改。")
     if len(np.unique(x)) != len(x):
-        warnings.append("X 存在重复值，已保留原扫描顺序和所有有效点。")
+        warnings.append("完整扫描 X 存在重复值，不自动合并；选定分支后仍保持其采集顺序。")
     delta = np.diff(x)
     if not (np.all(delta >= 0) or np.all(delta <= 0)):
-        warnings.append("X 非单调，按采集顺序连线；适用于往返扫描。")
+        warnings.append("完整扫描 X 非单调；保留往返轨迹，或选择单个扫描分支处理。")
+    branches = scan_branches(x)
+    if branch != "all":
+        chosen = next((item for item in branches if item["id"] == branch), None)
+        if chosen is None:
+            raise ValueError("扫描分支已失效，请重新选择。")
+        section = slice(chosen["start"], chosen["stop"])
+        x, raw_y, rows = x[section], raw_y[section], rows[section]
+    if smoothing > len(x):
+        raise ValueError("平滑窗口不能超过有效数据点数。")
+    if branch == "all" and len(branches) > 1 and smoothing > 1:
+        raise ValueError("往返扫描请先选择单个分支再平滑，避免跨转折点混合。")
     y = raw_y.copy()
     baseline_values = np.zeros_like(y)
     if baseline == "minimum":
@@ -70,7 +100,8 @@ def process_curve(dataset: Dataset, x_column: str, y_column: str, *,
         "baseline_values": baseline_values.tolist(), "source_rows": (rows + 1).tolist(),
         "source": dataset.source, "x_column": x_column, "y_column": y_column,
         "settings": {"baseline": baseline, "smoothing": smoothing,
-                     "normalization": normalization, "order": "acquisition"},
+                     "normalization": normalization, "order": "acquisition", "branch": branch},
+        "branches": branches,
         "stats": {"points": len(x), "dropped_rows": dropped,
                   "x_min": float(x.min()), "x_max": float(x.max()),
                   "y_min": float(y.min()), "y_max": float(y.max()),

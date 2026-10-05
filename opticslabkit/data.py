@@ -20,6 +20,8 @@ class Dataset:
     frame: pd.DataFrame
     source: dict
     sheets: list[str]
+    raw: bytes = b""
+    parsing: dict | None = None
 
     def describe(self) -> dict:
         numeric = [
@@ -162,7 +164,10 @@ def read_data(name: str, raw: bytes, *, sheet: str | None = None,
             seen.add(key)
         frame.columns = keys
     info["row_count"] = len(frame)
-    return Dataset(Path(name).name, frame, info, sheets)
+    return Dataset(Path(name).name, frame, info, sheets, raw, {
+        "sheet": sheet, "skip_rows": skip_rows, "header": header,
+        "delimiter": delimiter, "decimal": decimal,
+    })
 
 
 def demo_data() -> bytes:
@@ -174,3 +179,24 @@ def demo_data() -> bytes:
     tm += 0.006 * np.cos(x * 7)
     return pd.DataFrame({"Wavelength (nm)": x, "TE (a.u.)": te,
                          "TM (a.u.)": tm}).to_csv(index=False).encode("utf-8")
+
+
+def workflow_demo(kind: str) -> list[tuple[str, bytes]]:
+    """Deterministic synthetic fixtures for branch and repeat workflows."""
+    if kind == "scan":
+        x = np.linspace(0, 4, 101)
+        rising = .2 + .8 / (1 + np.exp(-4 * (x - 2.4)))
+        falling = .2 + .8 / (1 + np.exp(-4 * (x - 1.6)))
+        frame = pd.DataFrame({"Input (a.u.)": np.r_[x, x[-2::-1]],
+                              "Response (a.u.)": np.r_[rising, falling[-2::-1]]})
+        return [("synthetic_return_scan.csv", frame.to_csv(index=False).encode())]
+    if kind == "repeats":
+        result = []
+        for i in range(3):
+            x = np.linspace(1525 + i * .1, 1545 - i * .1, 201)
+            y = .1 + (.8 + .03 * i) * np.exp(-.5 * ((x - 1535 - .08 * i) / 1.2) ** 2)
+            y += .008 * np.sin(7 * x + i)
+            frame = pd.DataFrame({"Wavelength (nm)": x, "TE (a.u.)": y})
+            result.append((f"synthetic_TE_run{i + 1}.csv", frame.to_csv(index=False).encode()))
+        return result
+    raise ValueError("未知合成示例。")
