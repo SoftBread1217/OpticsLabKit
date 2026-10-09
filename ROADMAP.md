@@ -22,9 +22,19 @@
 - [x] User-approved publication with local scientific/workflow tests and remote CI gate
 - [ ] Ongoing feedback with real instrument files and target-journal figure dimensions
 
+## v0.3.0 — Flexible comparisons and recoverable imports
+
+- [x] Per-view processing overrides on shared defaults
+- [x] Simultaneous views of one measurement's branches or processing alternatives
+- [x] In-place re-reading, failure preservation and processing-independent branch discovery
+- [x] Repeat-statistics method compatibility and mixed-scale warnings
+- [x] Schema-2 session files with schema-1 reading compatibility
+- [x] Atomic memory replacement and release of removed datasets
+- [x] Client model/event regression test against real API and JavaScript syntax CI
+- [ ] Ongoing real-browser/native file-picker and real-instrument user acceptance
+
 ## Later: driven by real usage
 
-- Per-curve processing settings (currently one shared processing panel)
 - Peak/dip fitting and FWHM with model, background, and uncertainty made explicit
 - Extinction ratio with user-confirmed power/dB conventions
 - Batch exports for repeated measurements

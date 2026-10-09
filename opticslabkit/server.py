@@ -8,6 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 from urllib.parse import urlparse
 
+from . import __version__
 from .data import Dataset, demo_data, read_data, workflow_demo
 from .export import export_bundle
 from .plotting import render_figure
@@ -26,12 +27,24 @@ class LabServer(ThreadingHTTPServer):
         self.store_lock = threading.Lock()
 
     def remember(self, dataset: Dataset) -> dict:
+        return self.remember_many([dataset])[0]
+
+    def remember_many(self, datasets: list[Dataset], replace_ids: list | None = None) -> list[dict]:
+        replace_ids = replace_ids or []
+        if not isinstance(replace_ids, list) or len(replace_ids) > 40 \
+                or any(not isinstance(key, str) for key in replace_ids):
+            raise ValueError("待替换的数据标识格式无效。")
+        records = [{"id": secrets.token_urlsafe(16), **data.describe()} for data in datasets]
         with self.store_lock:
-            if len(self.datasets) >= 40:
-                raise ValueError("本次会话已导入 40 个文件，请重启服务清空会话。")
-            key = secrets.token_urlsafe(16)
-            self.datasets[key] = dataset
-        return {"id": key, **dataset.describe()}
+            removing = set(replace_ids) & self.datasets.keys()
+            if len(self.datasets) - len(removing) + len(datasets) > 40:
+                raise ValueError("当前最多保留 40 个文件，请移除不用的数据后再导入。")
+            # Descriptions/parsing/capacity have all passed before old memory is released.
+            for key in removing:
+                del self.datasets[key]
+            for record, data in zip(records, datasets, strict=True):
+                self.datasets[record["id"]] = data
+        return records
 
     def download(self, body: bytes, filename: str, content_type: str) -> str:
         key = secrets.token_urlsafe(24)
@@ -87,7 +100,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/template":
             self._send(demo_data(), "text/csv; charset=utf-8", filename="synthetic_TE_TM.csv")
         elif path == "/api/health":
-            self._json({"ok": True, "app": "OpticsLabKit"})
+            self._json({"ok": True, "app": "OpticsLabKit", "version": __version__})
         elif path.startswith("/api/preview/"):
             with self.server.store_lock:
                 body = self.server.previews.get(path.removeprefix("/api/preview/"))
@@ -133,21 +146,36 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/demo":
                 dataset = read_data("synthetic_TE_TM.csv", demo_data())
                 dataset.source["data_kind"] = "synthetic demonstration"
-                self._json(self.server.remember(dataset))
+                self._json(self.server.remember_many([dataset], payload.get("replace_ids"))[0])
             elif path in {"/api/demo-repeats", "/api/demo-scan"}:
-                records = []
+                datasets = []
                 for name, raw in workflow_demo(path.removeprefix("/api/demo-")):
                     dataset = read_data(name, raw)
                     dataset.source["data_kind"] = "synthetic demonstration"
-                    records.append(self.server.remember(dataset))
-                self._json({"datasets": records})
-            elif path == "/api/sheet":
+                    datasets.append(dataset)
+                self._json({"datasets": self.server.remember_many(
+                    datasets, payload.get("replace_ids"))})
+            elif path in {"/api/sheet", "/api/reparse"}:
                 original = self.server.datasets.get(payload.get("id"))
                 if original is None:
                     raise ValueError("数据会话已失效，请重新导入。")
-                dataset = read_data(original.name, original.raw,
-                                    **{**original.parsing, "sheet": payload.get("sheet")})
-                self._json(self.server.remember(dataset))
+                options = {"sheet": payload.get("sheet")} if path == "/api/sheet" \
+                    else payload.get("settings", {})
+                if not isinstance(options, dict):
+                    raise ValueError("读取设置格式无效。")
+                dataset = read_data(original.name, original.raw, **{**original.parsing, **options})
+                if "data_kind" in original.source:
+                    dataset.source["data_kind"] = original.source["data_kind"]
+                self._json(self.server.remember_many([dataset], [payload.get("id")])[0])
+            elif path == "/api/forget":
+                ids = payload.get("ids")
+                if not isinstance(ids, list) or len(ids) > 40 \
+                        or any(not isinstance(key, str) for key in ids):
+                    raise ValueError("待移除的数据标识格式无效。")
+                with self.server.store_lock:
+                    for key in ids:
+                        self.server.datasets.pop(key, None)
+                self._json({"ok": True})
             elif path == "/api/analyze":
                 curves, summary = analyze_selection(self.server.datasets, payload)
                 body = render_figure(curves, payload.get("figure", {}), "svg",
@@ -159,6 +187,15 @@ class Handler(BaseHTTPRequestHandler):
                     self.server.previews[key] = body
                 self._json({"curves": curves, "analysis": summary,
                             "preview_url": f"/api/preview/{key}"})
+            elif path == "/api/branches":
+                # Discovery must work even when current smoothing/figure settings are invalid.
+                selected = payload.get("curves", [])
+                if not isinstance(selected, list) or not 1 <= len(selected) <= 12:
+                    raise ValueError("请选择 1–12 条曲线。")
+                raw_curves = self._curves({"curves": [
+                    {key: spec[key] for key in ("id", "x", "y", "view") if key in spec}
+                    for spec in selected]})
+                self._json({"branches": [curve["branches"] for curve in raw_curves]})
             elif path == "/api/export":
                 curves, summary = analyze_selection(self.server.datasets, payload)
                 body = export_bundle(curves, payload.get("figure", {}), summary)
@@ -174,17 +211,14 @@ class Handler(BaseHTTPRequestHandler):
                     body, "comparison.olksession.json", "application/json; charset=utf-8")})
             elif path == "/api/session/load":
                 # Validate everything before changing server state. No scripts are executed.
+                # Transport-only replace_ids is not part of the portable session document.
                 records, state = load_session(json.dumps(payload).encode("utf-8"))
                 restored, remap = [], {}
-                with self.server.store_lock:
-                    if len(self.server.datasets) + len(records) > 40:
-                        raise ValueError("恢复会话会超过 40 个文件，请重启服务后再打开。")
-                    for record in records:
-                        key = secrets.token_urlsafe(16)
-                        remap[record["key"]] = key
-                        self.server.datasets[key] = record["dataset"]
-                        restored.append({"id": key, **record["dataset"].describe(),
-                                         **record["selection"]})
+                descriptions = self.server.remember_many(
+                    [r["dataset"] for r in records], payload.get("replace_ids"))
+                for record, description in zip(records, descriptions, strict=True):
+                    remap[record["key"]] = description["id"]
+                    restored.append({**description, **record["selection"]})
                 for curve in state["curves"]:
                     curve["id"] = remap[curve["id"]]
                 self._json({"datasets": restored, "state": state})

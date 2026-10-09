@@ -2,16 +2,26 @@
 
 from .analysis import optical_summary, suggest_identity
 from .plotting import curve_style, figure_settings
-from .processing import process_curve
+from .processing import process_curve, processing_settings
 
 
 def analyze_selection(datasets: dict, payload: dict) -> tuple[list[dict], dict]:
     selected = payload.get("curves", [])
     if not isinstance(selected, list) or not 1 <= len(selected) <= 12:
         raise ValueError("请选择 1–12 条曲线。")
-    options, result = payload.get("processing", {}), []
+    options, result = processing_settings(payload.get("processing", {})), []
+    seen = set()
     figure_settings(payload.get("figure", {}))
     for index, spec in enumerate(selected):
+        if not isinstance(spec, dict):
+            raise ValueError("曲线配置格式无效。")
+        view = spec.get("view", "base")
+        if not isinstance(view, str) or not 1 <= len(view) <= 80:
+            raise ValueError("曲线视图标识无效。")
+        identity = (spec.get("id"), spec.get("x"), spec.get("y"), view)
+        if identity in seen:
+            raise ValueError("曲线视图重复，请使用不同的视图标识。")
+        seen.add(identity)
         dataset = datasets.get(spec.get("id"))
         if dataset is None:
             raise ValueError("数据会话已失效，请重新导入。")
@@ -24,13 +34,17 @@ def analyze_selection(datasets: dict, payload: dict) -> tuple[list[dict], dict]:
             "polarization"])
         if polarization not in {"TE", "TM", "unknown"}:
             raise ValueError("偏振标记无效。")
+        overrides = spec.get("processing")
+        effective = processing_settings({**options, **overrides}) if isinstance(overrides, dict) \
+            else options
+        if overrides is not None and not isinstance(overrides, dict):
+            raise ValueError("独立处理参数必须是对象，或为空以跟随共享设置。")
         curve = process_curve(dataset, spec.get("x", ""), spec.get("y", ""), label=label,
-                              normalization=options.get("normalization", "none"),
-                              baseline=options.get("baseline", "none"),
-                              smoothing=options.get("smoothing", 1),
+                              **effective,
                               branch=spec.get("branch", "all"))
         curve.update(style=curve_style(spec.get("style", {}), index), group=group.strip(),
-                     polarization=polarization)
+                     polarization=polarization, view=view,
+                     processing_scope="independent" if overrides is not None else "shared")
         result.append(curve)
     analysis_options = payload.get("analysis", {})
     for value in analysis_options.values():

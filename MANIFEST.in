@@ -1,6 +1,7 @@
 include LICENSE README.md CHANGELOG.md ROADMAP.md launch.ps1 start.cmd
 recursive-include docs *.md *.png
 recursive-include tests *.py
+recursive-include tests *.cjs
 recursive-include .github *.yml
 recursive-include opticslabkit/static *.html *.css *.js
 prune local_data

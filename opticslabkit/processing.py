@@ -6,6 +6,24 @@ import pandas as pd
 from .data import Dataset
 
 
+def processing_settings(options: dict | None = None) -> dict:
+    """Validate shared defaults or per-view overrides without interpreting physical units."""
+    defaults = {"normalization": "none", "baseline": "none", "smoothing": 1}
+    if options is not None and (not isinstance(options, dict) or set(options) - set(defaults)):
+        raise ValueError("处理参数仅支持归一化、基线和移动平均窗口。")
+    result = {**defaults, **(options or {})}
+    if not isinstance(result["normalization"], str) or result["normalization"] not in {
+            "none", "minmax", "maxabs"}:
+        raise ValueError("归一化设置无效。")
+    if not isinstance(result["baseline"], str) or result["baseline"] not in {
+            "none", "minimum", "edge_linear"}:
+        raise ValueError("基线设置无效。")
+    window = result["smoothing"]
+    if type(window) is not int or window < 1 or window % 2 != 1:
+        raise ValueError("平滑窗口必须是正奇数；1 表示不平滑。")
+    return result
+
+
 def scan_branches(x: np.ndarray) -> list[dict]:
     """Maximal monotonic runs; plateaus stay intact and turning points are shared.
 
@@ -34,12 +52,8 @@ def process_curve(dataset: Dataset, x_column: str, y_column: str, *,
         raise ValueError("请选择有效的 X/Y 数据列。")
     if x_column == y_column:
         raise ValueError("X 和 Y 需要选择不同的数据列。")
-    if normalization not in {"none", "minmax", "maxabs"}:
-        raise ValueError("归一化设置无效。")
-    if baseline not in {"none", "minimum", "edge_linear"}:
-        raise ValueError("基线设置无效。")
-    if not isinstance(smoothing, int) or smoothing < 1 or smoothing % 2 != 1:
-        raise ValueError("平滑窗口必须是正奇数；1 表示不平滑。")
+    processing_settings({"normalization": normalization, "baseline": baseline,
+                         "smoothing": smoothing})
     x_all = pd.to_numeric(dataset.frame[x_column], errors="coerce").to_numpy(dtype=float)
     y_all = pd.to_numeric(dataset.frame[y_column], errors="coerce").to_numpy(dtype=float)
     valid = np.isfinite(x_all) & np.isfinite(y_all)

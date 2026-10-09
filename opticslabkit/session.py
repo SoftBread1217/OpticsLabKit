@@ -6,9 +6,11 @@ import json
 from . import __version__
 from .data import MAX_FILE_BYTES, Dataset, demo_data, read_data, workflow_demo
 from .plotting import figure_settings, render_figure
+from .processing import processing_settings
 from .workflow import analyze_selection
 
-SCHEMA = "opticslabkit-session/1"
+SCHEMA = "opticslabkit-session/2"
+LEGACY_SCHEMA = "opticslabkit-session/1"
 MAX_SESSION_BYTES = 29 * 1024 * 1024
 
 
@@ -46,7 +48,7 @@ def load_session(raw: bytes) -> tuple[list[dict], dict]:
     if len(raw) > MAX_SESSION_BYTES:
         raise ValueError("会话最大 29 MB。")
     document = json.loads(raw)
-    if not isinstance(document, dict) or document.get("schema") != SCHEMA:
+    if not isinstance(document, dict) or document.get("schema") not in {SCHEMA, LEGACY_SCHEMA}:
         raise ValueError("不支持的会话格式，请选择 .olksession.json 文件。")
     records = document.get("datasets")
     if not isinstance(records, list) or not 1 <= len(records) <= 40:
@@ -79,12 +81,17 @@ def load_session(raw: bytes) -> tuple[list[dict], dict]:
     expected = [(r["key"], r["selection"]["x"], y) for r in result
                 for y in r["selection"]["ys"]]
     actual = [(c["id"], c["x"], c["y"]) for c in state.get("curves", [])]
-    if sorted(expected) != sorted(actual) or len(set(actual)) != len(actual):
+    if set(expected) != set(actual) or len(set(expected)) != len(expected):
         raise ValueError("会话曲线与选列不一致。")
+    if document["schema"] == LEGACY_SCHEMA and len(set(actual)) != len(actual):
+        raise ValueError("旧版会话不支持同列多个曲线视图。")
+    base = [(c["id"], c["x"], c["y"]) for c in state.get("curves", [])
+            if c.get("view", "base") == "base"]
+    if sorted(base) != sorted(expected):
+        raise ValueError("会话每个已选数据列需保留一个基础视图。")
     curves, summary = analyze_selection(datasets, state)
     state["figure"] = figure_settings(state.get("figure", {}))
-    state["processing"] = {key: curves[0]["settings"][key]
-                           for key in ("baseline", "smoothing", "normalization")}
+    state["processing"] = processing_settings(state.get("processing", {}))
     state["analysis"] = {"repeats": state.get("analysis", {}).get("repeats", False),
                          "units_confirmed": state.get("analysis", {}).get("units_confirmed", False)}
     for spec, curve in zip(state["curves"], curves, strict=True):

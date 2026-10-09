@@ -17,13 +17,33 @@ instrument exports, save a repeatable comparison, and hand independent X/Y colum
 for advanced fitting or final layout. Figure dimensions are user-controlled; journal compliance
 still needs a check against the target publication's requirements.
 
-v0.2.0 implements the three workflow improvements below. It remains a small, focused
-workbench: please validate processing choices against your experiment before using results.
+v0.3.0 adds independent processing per curve view, simultaneous scan-branch comparisons,
+and re-reading instrument files without selecting them again. Validate processing choices
+against your experiment before using results.
 
 ![v0.1.0 foundation interface with synthetic TE/TM curves](docs/images/workbench.png)
 
-The image above is the v0.1.0 foundation interface. For v0.2.0 and its three
-examples, follow the [ten-minute walkthrough](docs/v0.2.0_tryout_zh.md).
+The image above is the v0.1.0 foundation interface. For the current workflow, follow the
+[v0.3.0 walkthrough](docs/v0.3.0_tryout_zh.md).
+
+## What v0.3.0 adds
+
+- **Per-view processing**: shared defaults plus explicit independent baseline, smoothing and
+  normalization controls. The result table and manifest record the effective settings.
+- **One measurement, multiple views**: copy a curve to compare ascending/descending branches
+  or processed/unprocessed versions side by side, without importing a file twice. A copied
+  view is not an independent measurement. Maximum: 12 curve views per comparison.
+- **Recoverable reading settings**: re-read a file from its original bytes; failed parsing
+  leaves previous data intact. Successful re-reading resets grouping/styles/branch views
+  and independent settings, with a visible notice. Branch discovery is independent of smoothing.
+- **Safer repeat statistics**: incompatible normalization, baseline or smoothing settings
+  block mean/SD aggregation; mixing different normalization scales produces an explicit warning.
+- **Portable sessions**: schema 2 preserves multiple views and per-view overrides; v0.2.0
+  schema-1 sessions remain readable. Older OpticsLabKit versions cannot load schema-2 files.
+- **Memory lifecycle**: removed files are released from server memory; demo/session replacement
+  is atomic and does not accumulate stale imports. Original disk files are never removed.
+- **Client regression coverage**: event/model tests with a mock DOM use the real loopback API;
+  this does not substitute for browser layout/native file-picker verification.
 
 ## Try it
 
@@ -41,7 +61,7 @@ python -m opticslabkit serve
 
 On macOS/Linux, activate the environment with `source .venv/bin/activate`.
 
-Open **http://127.0.0.1:8766** and click **先体验 TE / TM 示例**.
+Open **http://127.0.0.1:8766** and click **TE / TM 示例**.
 On Windows, `launch.ps1` starts the app using the local virtual environment, or your
 default Python if no environment exists. Dependencies must already be installed.
 You can also double-click `start.cmd` and then open the local address.
@@ -136,7 +156,7 @@ Different conditions must not be combined just because filenames look similar.
 Individually normalized repeat SD describes normalized shapes, not absolute measurement error.
 
 This version supports `.xlsx`, not `.xls`, and static figures, not instrument control.
-Maximums: 20 MB per file, 200,000 rows, 40 imports per session, 12 curves per comparison.
+Maximums: 20 MB per file, 200,000 rows, 40 retained files, 12 curve views per comparison.
 Uploads stay in server memory until the process stops. No network API, CDN, analytics,
 or remote upload is used. The service binds to `127.0.0.1` only.
 
@@ -146,7 +166,9 @@ or remote upload is used. The service binds to `127.0.0.1` only.
 python -m pip install -e ".[dev]"
 python -m pytest
 python -m ruff check .
+node --check opticslabkit/static/app.js
 ```
 
 See [中文入门](docs/quickstart_zh.md) and [Roadmap](ROADMAP.md).
+Node.js 22+ enables the optional client event/model integration test; CI runs it explicitly.
 License: MIT.

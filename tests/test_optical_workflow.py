@@ -204,3 +204,84 @@ def test_pipeline_preserves_metadata():
     assert curves[0]["group"] == "condition 1"
     assert curves[0]["style"]["color"] == "#123456"
     assert summary["pairs"][0]["te"] == [0]
+
+
+def test_independent_processing_does_not_change_shared_settings_or_other_curves():
+    data = read_data("scan.csv", b"x,y\n0,10\n1,13\n2,10\n")
+    payload = {"processing": {"normalization": "none", "baseline": "none", "smoothing": 1},
+               "curves": [{"id": "data", "x": "x", "y": "y", "view": "base"},
+                          {"id": "data", "x": "x", "y": "y", "view": "processed",
+                           "processing": {"baseline": "minimum", "smoothing": 3}}]}
+    before = copy.deepcopy(payload)
+    curves, _ = analyze_selection({"data": data}, payload)
+    assert curves[0]["y"] == [10, 13, 10]
+    assert curves[1]["y"] == [1, 1, 1]
+    assert curves[0]["processing_scope"] == "shared"
+    assert curves[1]["processing_scope"] == "independent"
+    assert payload == before
+
+
+def test_simultaneous_branches_and_independent_settings_survive_session():
+    data = read_data("loop.csv", b"x,y\n0,10\n1,13\n2,10\n1,3\n0,1\n")
+    payload = {"datasets": [{"id": "loop", "x": "x", "ys": ["y"]}],
+               "processing": {"baseline": "none", "smoothing": 1, "normalization": "none"},
+               "curves": [{"id": "loop", "x": "x", "y": "y", "view": "base",
+                           "branch": "0", "processing": {"baseline": "minimum"}},
+                          {"id": "loop", "x": "x", "y": "y", "view": "return",
+                           "branch": "1"}], "figure": {"show_raw": False}}
+    curves, _ = analyze_selection({"loop": data}, payload)
+    assert curves[0]["x"] == [0, 1, 2]
+    assert curves[1]["x"] == [2, 1, 0]
+    assert curves[0]["y"] == [0, 3, 0]
+    assert curves[1]["y"] == [10, 3, 1]
+    raw = save_session({"loop": data}, payload)
+    assert json.loads(raw)["schema"] == "opticslabkit-session/2"
+    records, state = load_session(raw)
+    assert state["processing"] == payload["processing"]  # Not the first curve's override.
+    restored, _ = analyze_selection({"loop": records[0]["dataset"]}, state)
+    assert [c["y"] for c in restored] == [c["y"] for c in curves]
+    assert state["curves"][0]["processing"] == {"baseline": "minimum"}
+    assert state["curves"][1]["view"] == "return"
+
+
+def test_v020_sessions_remain_loadable():
+    data, payload = session_fixture()
+    legacy = json.loads(save_session({"original": data}, payload))
+    legacy["schema"] = "opticslabkit-session/1"
+    legacy["version"] = "0.2.0"
+    records, state = load_session(json.dumps(legacy).encode())
+    assert records[0]["dataset"].raw == data.raw
+    assert state["processing"] == payload["processing"]
+
+
+def test_processing_mismatch_blocks_repeat_statistics():
+    curves = runs()
+    curves[1]["settings"]["smoothing"] = 3
+    summary = optical_summary(curves, repeats=True, units_confirmed=True)
+    assert not summary["statistics"]
+    assert "处理设置不同" in summary["warnings"][0]
+    curves[1]["settings"]["normalization"] = "minmax"
+    assert "不同归一化尺度" in optical_summary(curves)["warnings"][0]
+
+
+@pytest.mark.parametrize("processing", [[], {"smoothing": True}, {"smoothing": 2},
+                                        {"baseline": "unknown"}, {"sort": True}])
+def test_invalid_independent_processing_rejected(processing):
+    data, payload = session_fixture()
+    payload["curves"][0]["processing"] = processing
+    with pytest.raises(ValueError):
+        analyze_selection({"original": data}, payload)
+
+
+def test_duplicate_view_ids_rejected():
+    data, payload = session_fixture()
+    payload["curves"].append(copy.deepcopy(payload["curves"][0]))
+    with pytest.raises(ValueError, match="视图重复"):
+        analyze_selection({"original": data}, payload)
+
+
+def test_session_needs_base_view_for_frontend_restore():
+    data, payload = session_fixture()
+    payload["curves"][0]["view"] = "only-copy"
+    with pytest.raises(ValueError, match="基础视图"):
+        save_session({"original": data}, payload)

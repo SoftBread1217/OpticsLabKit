@@ -22,6 +22,9 @@ def optical_summary(curves: list[dict], *, repeats: bool = False,
     Their shared grid is the first run's points within the common overlap only.
     """
     groups, pairs, statistics, warnings = defaultdict(list), [], [], []
+    scales = {c["settings"]["normalization"] for c in curves}
+    if len(scales) > 1:
+        warnings.append("曲线采用不同归一化尺度；请分图比较，不要把它们当成同单位的幅值。")
     for index, curve in enumerate(curves):
         group = str(curve.get("group", "")).strip()
         if group:
@@ -40,6 +43,11 @@ def optical_summary(curves: list[dict], *, repeats: bool = False,
             prefix = f"{name} / {pol}"
             if not units_confirmed:
                 warnings.append(f"{prefix}：请先确认各次测量的 X/Y 单位和条件一致。")
+                continue
+            methods = {tuple(c["settings"][key] for key in
+                             ("normalization", "baseline", "smoothing")) for _, c in runs}
+            if len(methods) != 1:
+                warnings.append(f"{prefix}：处理设置不同，无法汇总；请统一归一化、基线和平滑。")
                 continue
             identities = [(c["source"]["sha256"], c["source"].get("sheet"),
                            c["x_column"], c["y_column"], c["settings"]["branch"])

@@ -45,6 +45,7 @@ class Dataset:
             "name": self.name, "rows": len(self.frame), "columns": list(self.frame.columns),
             "numeric_columns": numeric, "preview": preview,
             "sheets": self.sheets, "source": self.source,
+            "parsing": self.parsing,
         }
 
 

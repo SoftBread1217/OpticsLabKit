@@ -4,7 +4,7 @@
 <title>OpticsLabKit · 光学数据工作台</title><link rel="stylesheet" href="/style.css">
 <script src="/app.js" defer></script></head>
 <body>
-<header><div class="brand"><span class="mark">O<span>／</span>K</span><div>OpticsLabKit<small>光学数据工作台</small></div></div><div class="local"><span></span>本地运行 · v0.2.0</div></header>
+<header><div class="brand"><span class="mark">O<span>／</span>K</span><div>OpticsLabKit<small>光学数据工作台</small></div></div><div class="local"><span></span>本地运行 · v0.3.0</div></header>
 <main><section class="intro"><div><p class="eyebrow">FROM MEASUREMENT TO FIGURE</p><h1>从光学实验，到可复现的图。</h1><p>整理扫描与重复测量，统一出图，再交给 Origin 精修。</p></div><div class="demo-buttons"><button id="demo" class="secondary">TE / TM 示例</button><button id="repeatDemo" class="secondary">重复测量示例</button><button id="scanDemo" class="secondary">往返扫描示例</button></div></section>
 <div id="status" role="status" aria-live="polite">导入你的数据，或者先载入合成示例。</div>
 <a id="downloadReady" class="template" hidden>下载已生成的文件</a>
@@ -15,11 +15,11 @@
 <label>跳过前几行<input id="skip" type="number" min="0" max="200000" value="0"></label>
 <label>表头<select id="header"><option value="auto">自动识别</option><option value="yes">第一行为表头</option><option value="no">没有表头</option></select></label>
 <label>分隔符<select id="delimiter"><option value="auto">自动识别</option><option value="comma">逗号 ,</option><option value="tab">制表符 Tab</option><option value="space">空格</option><option value="semicolon">分号 ;</option></select></label>
-<label>小数符号<select id="decimal"><option value=".">小数点 .</option><option value=",">小数逗号 ,</option></select></label></div><p class="hint">调整后重新选择文件。以 #、% 或 // 开头的文本行会作为注释跳过。</p></details>
+<label>小数符号<select id="decimal"><option value=".">小数点 .</option><option value=",">小数逗号 ,</option></select></label></div><p class="hint">调整后点击文件卡片的“重新读取”，无需再次选择文件。读取失败会保留旧数据。以 #、% 或 // 开头的文本行作为注释跳过。</p></details>
 <div id="datasets"><p class="empty-note">尚未导入文件。支持一份文件里的多条曲线，也支持不同文件叠加比较。</p></div>
 <a class="template" href="/api/template">下载 TE / TM 合成示例 CSV</a></section>
 <section class="panel"><h2>保存与恢复工作</h2><div class="session-actions"><button id="saveSession" class="secondary" disabled>保存会话</button><label class="secondary file-button">打开会话<input id="loadSession" type="file" accept=".json"></label></div><p class="hint">会话包含原始文件、选列、分组和图样。关闭后可恢复；分享前请检查原始数据。原始文件合计 ≤ 20 MB。</p></section>
-<section class="panel"><div class="section-title"><span class="step">02</span><h2>处理与标注</h2></div>
+<section class="panel"><div class="section-title"><span class="step">02</span><h2>共享处理与标注</h2></div><p class="hint">默认作用于全部曲线。右侧勾选“独立处理”后，该视图不再跟随这里。</p>
 <label>归一化<select id="normalization"><option value="none">保留原始幅值</option><option value="minmax">Min-Max → [0, 1]</option><option value="maxabs">除以最大绝对值</option></select></label>
 <label>基线扣除<select id="baseline"><option value="none">不扣除</option><option value="minimum">扣除最小值</option><option value="edge_linear">首尾两点线性基线</option></select></label>
 <label>移动平均窗口（点数）<div class="range-row"><input id="smoothing" type="range" min="1" max="31" step="2" value="1"><output id="smoothValue">1 · 不平滑</output></div></label>
@@ -38,7 +38,7 @@
 <p class="hint">预览与导出使用同一绘图引擎。SVG 保留文本；PDF 嵌入字体。屏幕会缩放预览，最终尺寸以导出文件为准。字体需本机安装。</p></details>
 <button id="apply" class="primary" disabled>更新曲线</button></section></aside>
 <div class="workspace"><section class="panel plot-panel"><div class="plot-head"><div><p class="eyebrow">EXPORT-MATCHED PREVIEW</p><h2 id="plotTitle">曲线预览</h2></div><span id="pointCount" class="badge">等待数据</span></div><div class="canvas-wrap"><img id="chart" alt="光学响应曲线预览（与导出 SVG 相同）" hidden><div id="plotEmpty"><div class="empty-symbol">∿</div><h3>从第一条曲线开始</h3><p>载入合成示例，体验分组、扫描分支和科研图样。</p><button id="demoEmpty" class="secondary">载入 TE / TM 示例</button></div></div><p id="hover" class="hover">同一引擎预览 · 可编辑矢量图 · 不修改原始文件</p></section>
-<section class="panel"><div class="section-title"><span class="step">03</span><h2>光学分组与曲线样式</h2></div><p class="hint">同一实验条件填相同组名。偏振只做标记；分支的 ↑ / ↓ 仅代表 X 增减。转折点会被相邻分支共享，不代表独立测量。</p><div id="curveControls"></div><label class="check"><input id="repeats" type="checkbox"> 显示重复测量均值 ± 样本标准差（同组、同偏振）</label><label class="check"><input id="unitsConfirmed" type="checkbox"> 我确认参与汇总的测量单位、实验条件一致，且是独立重复</label><p class="hint">仅在共同区间内线性插值到首条曲线网格，不外推。标准差 SD 不是均值误差 SEM，也不是置信区间。</p><div id="opticalSummary" class="table-wrap"></div></section>
+<section class="panel"><div class="section-title"><span class="step">03</span><h2>分组、分支与独立处理</h2></div><p class="hint">同条件填相同组名。复制曲线视图可同时比较上扫/下扫，或不同处理方式；复制不是新的独立测量。↑ / ↓ 只代表 X 增减，转折点共享。</p><div id="curveControls"></div><label class="check"><input id="repeats" type="checkbox"> 显示重复测量均值 ± 样本标准差（同组、同偏振）</label><label class="check"><input id="unitsConfirmed" type="checkbox"> 我确认参与汇总的测量单位、实验条件一致，且是独立重复</label><p class="hint">只有处理设置一致、同方向且无重复 X 的测量才能汇总。仅在共同区间内插值，不外推。标准差 SD 不是 SEM 或置信区间。</p><div id="opticalSummary" class="table-wrap"></div></section>
 <section class="panel"><div class="section-title"><span class="step">04</span><h2>检查与导出</h2></div><div id="summary" class="table-wrap"><p class="empty-note">处理后显示每条曲线的数据点数、幅值范围和采样最大值位置。</p></div><div id="warnings"></div><div class="export-row"><div><strong>交给 Origin，或随时重画</strong><p>PNG · SVG · PDF · Origin X/Y 表 · 重画脚本 · 来源记录</p></div><button id="export" class="primary" disabled>下载结果 ZIP</button></div><p class="hint">Origin 导入 origin_xy.csv 后将每对 X_01/Y_01 设置为 X/Y；各曲线保留自己的网格。运行包内 redraw.py 可重新出图（需要 Python、Matplotlib、pandas）。结果 ZIP 不含原始文件，保存会话则包含。</p></section>
 <details class="panel"><summary>数据预览与使用说明</summary><div id="preview" class="table-wrap"></div><p class="hint">坐标单位由你填写，不自动猜测。每条曲线独立归一化后不能直接比较 TE/TM 的绝对强度。采样最大值不是拟合峰位或半高宽；往返扫描可保留滞回轨迹。示例为合成数据，不是论文测量数据。</p></details></div></div>
 <footer>OpticsLabKit <span>数据在本机内存中处理；关闭服务后清空。原始文件保持不变。</span></footer></main>

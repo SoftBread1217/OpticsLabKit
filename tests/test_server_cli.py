@@ -1,15 +1,18 @@
 import base64
 import io
 import json
+import shutil
 import subprocess
 import sys
 import threading
 import urllib.error
 import urllib.request
 import zipfile
+from pathlib import Path
 
 import pytest
 
+from opticslabkit.data import read_data
 from opticslabkit.server import LabServer
 
 
@@ -155,3 +158,78 @@ def test_browser_repeat_demo_has_stats_and_exported_sd(local_server):
     with post(local_server + "/api/export", payload) as response:
         with zipfile.ZipFile(io.BytesIO(response.read())) as archive:
             assert "repeat_01.csv" in archive.namelist()
+
+
+def test_reparse_preserves_old_data_on_failure_then_replaces_atomically(local_server):
+    raw = b"instrument,metadata\nx,y\n0,2\n1,3\n"
+    with post(local_server + "/api/import", {"name": "instrument.csv",
+              "data": base64.b64encode(raw).decode(), "settings": {"skip_rows": 1}}) as response:
+        original = json.load(response)
+    with pytest.raises(urllib.error.HTTPError):
+        post(local_server + "/api/reparse", {"id": original["id"],
+                                               "settings": {"skip_rows": 999}})
+    payload = {"curves": [{"id": original["id"], "x": "x", "y": "y"}]}
+    with post(local_server + "/api/analyze", payload) as response:
+        assert json.load(response)["curves"][0]["y"] == [2, 3]
+    with post(local_server + "/api/reparse", {"id": original["id"],
+              "settings": {"skip_rows": 2, "header": "no"}}) as response:
+        replacement = json.load(response)
+    assert replacement["id"] != original["id"]
+    assert replacement["parsing"]["skip_rows"] == 2
+    assert replacement["columns"] == ["Column 1", "Column 2"]
+    assert replacement["source"]["sha256"] == original["source"]["sha256"]
+    with pytest.raises(urllib.error.HTTPError):
+        post(local_server + "/api/analyze", payload)
+
+
+def test_forget_frees_only_requested_in_memory_dataset(local_server):
+    with post(local_server + "/api/demo", {}) as response:
+        first = json.load(response)
+    with post(local_server + "/api/demo", {}) as response:
+        second = json.load(response)
+    with post(local_server + "/api/forget", {"ids": [first["id"]]}) as response:
+        assert json.load(response)["ok"]
+    with pytest.raises(urllib.error.HTTPError):
+        post(local_server + "/api/analyze", {"curves": [{"id": first["id"],
+              "x": "Wavelength (nm)", "y": "TE (a.u.)"}]})
+    with post(local_server + "/api/analyze", {"curves": [{"id": second["id"],
+              "x": "Wavelength (nm)", "y": "TE (a.u.)"}]}) as response:
+        assert json.load(response)["curves"][0]["stats"]["points"] == 401
+
+
+def test_batch_replacement_capacity_is_atomic():
+    server = LabServer(0)
+    try:
+        data = read_data("synthetic.csv", b"x,y\n0,1\n1,2\n")
+        original = server.remember_many([data] * 39)
+        before = dict(server.datasets)
+        with pytest.raises(ValueError, match="40"):
+            server.remember_many([data, data])
+        assert server.datasets == before
+        new = server.remember_many([data, data], [original[0]["id"]])
+        assert len(server.datasets) == 40
+        assert original[0]["id"] not in server.datasets
+        assert new[0]["id"] in server.datasets
+        with pytest.raises(ValueError, match="格式"):
+            server.remember_many([data], "not-a-list")
+        assert len(server.datasets) == 40
+    finally:
+        server.server_close()
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Client integration requires Node.js")
+def test_client_model_events_against_real_api(local_server):
+    script = Path(__file__).with_name("frontend_workflow.cjs")
+    result = subprocess.run([shutil.which("node"), str(script), local_server],
+                            capture_output=True, timeout=45)
+    assert result.returncode == 0, result.stderr.decode(errors="replace")
+    assert b"session, reparse, removal OK" in result.stdout
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Client integration requires Node.js")
+def test_old_backend_is_detected_by_client(local_server):
+    script = Path(__file__).with_name("frontend_workflow.cjs")
+    result = subprocess.run([shutil.which("node"), str(script), local_server, "legacy-health"],
+                            capture_output=True, timeout=15)
+    assert result.returncode == 0, result.stderr.decode(errors="replace")
+    assert b"restart guidance OK" in result.stdout
